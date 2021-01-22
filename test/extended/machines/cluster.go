@@ -91,3 +91,31 @@ var _ = g.Describe("[sig-node] Managed cluster", func() {
 		o.Expect(err).NotTo(o.HaveOccurred())
 	})
 })
+
+var _ = g.Describe("[sig-cluster-lifecycle][Feature:IPI] BareMetalHost should", func() {
+	defer g.GinkgoRecover()
+
+	g.It("be online", func() {
+		cfg, err := e2e.LoadConfig()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		dc, err := dynamic.NewForConfig(cfg)
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		g.By("getting2 baremetalhost crd")
+		bmh := dc.Resource(schema.GroupVersionResource{Group: "metal3.io", Resource: "baremetalhosts", Version: "v1alpha1"})
+		g.By("parsing baremetalhost crd")
+		bmhListRaw, err := bmh.List(context.Background(), metav1.ListOptions{})
+		o.Expect(err).NotTo(o.HaveOccurred())
+		bmhList := objx.Map(bmhListRaw.UnstructuredContent())
+		bmhItems := objects(bmhList.Get("items"))
+
+		if len(bmhItems) == 0 {
+			e2eskipper.Skipf("cluster does not have bmh resources")
+		}
+
+		g.By("ensure all bmh items are online")
+		for _, value := range bmhItems {
+			o.Expect(value.Get("spec.online").Data().(bool)).To(o.BeTrue())
+		}
+	})
+})

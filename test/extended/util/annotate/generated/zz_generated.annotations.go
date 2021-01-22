@@ -1623,6 +1623,8 @@ var annotations = map[string]string{
 
 	"[Top Level] [sig-cluster-lifecycle][Feature:DisasterRecovery][Disruptive] [Feature:NodeRecovery] Cluster should survive master and worker failure and recover with machine health checks": "[Feature:NodeRecovery] Cluster should survive master and worker failure and recover with machine health checks [Serial] [Skipped:Disruptive]",
 
+	"[Top Level] [sig-cluster-lifecycle][Feature:IPI] BareMetalHost should be online": "be online [Suite:openshift/conformance/parallel]",
+
 	"[Top Level] [sig-cluster-lifecycle][Feature:Machines] Managed cluster should have machine resources": "have machine resources [Suite:openshift/conformance/parallel]",
 
 	"[Top Level] [sig-cluster-lifecycle][Feature:Machines][Disruptive] Managed cluster should recover from deleted worker machines": "recover from deleted worker machines [Serial]",
