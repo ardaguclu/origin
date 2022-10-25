@@ -6,10 +6,11 @@ import (
 	o "github.com/onsi/gomega"
 	exutil "github.com/openshift/origin/test/extended/util"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"strings"
 	"time"
 )
 
-var _ = g.Describe("[sig-cli] oc", func() {
+var _ = g.Describe("[sig-cli] oc new-app [apigroup:project.openshift.io][apigroup:build.openshift.io][apigroup:apps.openshift.io][apigroup:user.openshift.io][apigroup:image.openshift.io][Skipped:Disconnected][Serial]", func() {
 	defer g.GinkgoRecover()
 
 	var (
@@ -17,10 +18,7 @@ var _ = g.Describe("[sig-cli] oc", func() {
 		cmdTestData = exutil.FixturePath("testdata", "cmd", "test", "cmd", "testdata")
 	)
 
-	g.It("new-app [apigroup:project.openshift.io][apigroup:build.openshift.io][apigroup:apps.openshift.io][apigroup:image.openshift.io][apigroup:user.openshift.io][Skipped:Disconnected][Serial]", func() {
-		//projectName, err := oc.Run("project").Args("-q").Output()
-		//o.Expect(err).NotTo(o.HaveOccurred())
-
+	g.It("create imagestream", func() {
 		g.By("imagestream/tag creation and reuse")
 		err := oc.Run("create").Args("-f", fmt.Sprintf("%s/image-streams/image-streams-centos7.json", cmdTestData), "-n", oc.Namespace()).Execute()
 		o.Expect(err).NotTo(o.HaveOccurred())
@@ -37,9 +35,9 @@ var _ = g.Describe("[sig-cli] oc", func() {
 		}()
 
 		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (bool, error) {
-			err := oc.Run("get").Args("istag", "php:latest", "-n", oc.Namespace()).Execute()
-			return err != nil, nil
+			return oc.Run("get").Args("istag", "php:latest", "-n", oc.Namespace()).Execute() != nil, nil
 		})
+		o.Expect(err).NotTo(o.HaveOccurred())
 
 		g.By("should fail due to missing php:latest tag")
 		err = oc.Run("new-app").Args(fmt.Sprintf("--image-stream=%s/php", oc.Namespace()), "https://github.com/sclorg/cakephp-ex").Execute()
@@ -50,10 +48,64 @@ var _ = g.Describe("[sig-cli] oc", func() {
 		o.Expect(err).NotTo(o.HaveOccurred())
 
 		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
-			err = oc.Run("get").Args("istag", "php:latest", "-n", testImageStreamProject).Execute()
-			return err == nil, nil
+			return oc.Run("get").Args("istag", "php:latest", "-n", testImageStreamProject).Execute() == nil, nil
 		})
+		o.Expect(err).NotTo(o.HaveOccurred())
+
 		err = oc.Run("create").Args("istag", "php:latest", fmt.Sprintf("--from=%s/php:7.1", oc.Namespace()), "-n", oc.Namespace()).Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		g.By("create a new tag for an existing imagestream in the current namespace")
+		err = oc.Run("create").Args("istag", "perl:5.30", fmt.Sprintf("--from=%s/perl:5.30", oc.Namespace())).Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		err = oc.Run("new-app").Args("--docker-image=library/perl", "https://github.com/sclorg/dancer-ex", "--strategy=source").Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
+			return oc.Run("get").Args("istag", "perl:şatest", "-n", testImageStreamProject).Execute() == nil, nil
+		})
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		g.By("remove redundant imagestream tag before creating objects")
+		out, err := oc.Run("new-app").Args(fmt.Sprintf("%s/ruby-27-centos7", oc.Namespace()), "https://github.com/openshift/ruby-hello-world", "strategy=docker", "--loglevel=5").Output()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		o.Expect(out).To(o.ContainSubstring("Removing duplicate tag from object list"))
+
+		g.By("create imagestream in the correct namespace")
+		err = oc.Run("new-app").Args("--name=mytest", "--image-stream=mysql", "--env=MYSQL_USER=test", "--env=MYSQL_PASSWORD=redhat", "--env=MYSQL_DATABASE=testdb", "-l", "app=mytest").Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
+			return oc.Run("get").Args("is", "mytest", "-n", testImageStreamProject).Execute() == nil, nil
+		})
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		g.By("don't create an unnecessary imagestream")
+		err = oc.Run("new-app").Args("https://github.com/sclorg/nodejs-ex").Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
+			out, _ = oc.Run("get").Args("is", "nodejs", "-n", testImageStreamProject).Output()
+			if strings.Contains(out, "not found") {
+				return true, nil
+			}
+
+			return false, nil
+		})
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		g.By("check reuse imagestreams")
+		err = oc.Run("new-build").Args("-D", "$'FROM node:8\\nRUN echo \\\"Test\\\"'", "--name=node8").Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
+			return oc.Run("get").Args("istag", "node:8").Execute() == nil, nil
+		})
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		err = oc.Run("new-build").Args("-D", "$'FROM node:10\\nRUN echo \\\"Test\\\"'", "--name=node10").Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
+			return oc.Run("get").Args("istag", "node:10").Execute() == nil, nil
+		})
 		o.Expect(err).NotTo(o.HaveOccurred())
 	})
 })
@@ -73,32 +125,6 @@ var _ = g.Describe("[sig-cli] oc", func() {
 ) &>/dev/null
 
 os::test::junit::declare_suite_start "cmd/newapp"
-
-# create a new tag for an existing imagestream in the current namespace
-os::cmd::expect_success 'oc create istag perl:5.30 --from=openshift/perl:5.30'
-os::cmd::expect_success 'oc new-app --docker-image=library/perl https://github.com/sclorg/dancer-ex --strategy=source'
-os::cmd::try_until_success 'oc get istag perl:latest -n test-imagestreams'
-
-# remove redundant imagestream tag before creating objects
-os::cmd::expect_success_and_text 'oc new-app  openshift/ruby-27-centos7 https://github.com/openshift/ruby-hello-world  --strategy=docker --loglevel=5' 'Removing duplicate tag from object list'
-
-# create imagestream in the correct namespace
-os::cmd::expect_success 'oc new-app --name=mytest --image-stream=mysql --env=MYSQL_USER=test --env=MYSQL_PASSWORD=redhat --env=MYSQL_DATABASE=testdb -l app=mytest'
-os::cmd::try_until_success 'oc get is mytest -n test-imagestreams'
-
-# don't create an unnecessary imagestream
-os::cmd::expect_success 'oc new-app https://github.com/sclorg/nodejs-ex'
-os::cmd::expect_failure_and_text 'oc get is nodejs -n test-imagestreams' 'not found'
-
-# check reuse imagestreams
-os::cmd::expect_success "oc new-build -D $'FROM node:8\nRUN echo \"Test\"' --name=node8"
-os::cmd::try_until_success 'oc get istag node:8'
-os::cmd::expect_success "oc new-build -D $'FROM node:10\nRUN echo \"Test\"' --name=node10"
-os::cmd::try_until_success 'oc get istag node:10'
-
-# cleanup and reset to default namespace
-os::cmd::expect_success 'oc delete is --all -n openshift'
-os::cmd::expect_success 'oc delete project test-imagestreams'
 
 # This test validates the new-app command
 os::cmd::expect_success 'oc project ${default_project}'
