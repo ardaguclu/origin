@@ -1,7 +1,64 @@
-#!/bin/bash
-source "$(dirname "${BASH_SOURCE}")/../../hack/lib/init.sh"
-trap os::test::junit::reconcile_output EXIT
+package cli
 
+import (
+	"fmt"
+	g "github.com/onsi/ginkgo"
+	o "github.com/onsi/gomega"
+	exutil "github.com/openshift/origin/test/extended/util"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"time"
+)
+
+var _ = g.Describe("[sig-cli] oc", func() {
+	defer g.GinkgoRecover()
+
+	var (
+		oc          = exutil.NewCLI("oc-new-app").AsAdmin()
+		cmdTestData = exutil.FixturePath("testdata", "cmd", "test", "cmd", "testdata")
+	)
+
+	g.It("new-app [apigroup:project.openshift.io][apigroup:build.openshift.io][apigroup:apps.openshift.io][apigroup:image.openshift.io][apigroup:user.openshift.io][Skipped:Disconnected][Serial]", func() {
+		//projectName, err := oc.Run("project").Args("-q").Output()
+		//o.Expect(err).NotTo(o.HaveOccurred())
+
+		g.By("imagestream/tag creation and reuse")
+		err := oc.Run("create").Args("-f", fmt.Sprintf("%s/image-streams/image-streams-centos7.json", cmdTestData), "-n", oc.Namespace()).Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		err = oc.Run("delete").Args("istag", "php:latest", "-n", oc.Namespace()).Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		testImageStreamProject := oc.Namespace() + "test-imagestreams"
+		err = oc.Run("new-project").Args(testImageStreamProject).Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		defer func() {
+			err = oc.Run("delete", "namespace").Args(testImageStreamProject).Execute()
+			o.Expect(err).NotTo(o.HaveOccurred())
+		}()
+
+		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (bool, error) {
+			err := oc.Run("get").Args("istag", "php:latest", "-n", oc.Namespace()).Execute()
+			return err != nil, nil
+		})
+
+		g.By("should fail due to missing php:latest tag")
+		err = oc.Run("new-app").Args(fmt.Sprintf("--image-stream=%s/php", oc.Namespace()), "https://github.com/sclorg/cakephp-ex").Execute()
+		o.Expect(err).To(o.HaveOccurred())
+
+		g.By("should succeed and create the php:latest tag in the current namespace")
+		err = oc.Run("new-app").Args("--docker-image=library/php", "https://github.com/sclorg/cakephp-ex", "--strategy=source").Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
+			err = oc.Run("get").Args("istag", "php:latest", "-n", testImageStreamProject).Execute()
+			return err == nil, nil
+		})
+		err = oc.Run("create").Args("istag", "php:latest", fmt.Sprintf("--from=%s/php:7.1", oc.Namespace()), "-n", oc.Namespace()).Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+	})
+})
+
+/*
 # Cleanup cluster resources created by this test
 (
   set +e
@@ -10,32 +67,12 @@ trap os::test::junit::reconcile_output EXIT
   oc delete all,templates --all -n openshift
   oc delete project template-substitute
   oc delete project prefix-template-substitute
-  oc delete project test-imagestreams
   oc delete project new-app-syntax
   rm -rf ./test/testdata/testapp
   exit 0
 ) &>/dev/null
 
-os::util::environment::setup_time_vars
-
 os::test::junit::declare_suite_start "cmd/newapp"
-
-default_project=$(oc project -q)
-#os::cmd::expect_success 'git clone https://github.com/openshift/ruby-hello-world.git ./test/testdata/testapp'
-
-# imagestream/tag creation and reuse
-os::cmd::expect_success 'oc create -f ${TEST_DATA}/image-streams/image-streams-centos7.json -n openshift'
-os::cmd::expect_success 'oc delete istag php:latest -n openshift'
-os::cmd::expect_success 'oc new-project test-imagestreams'
-os::cmd::try_until_failure 'oc get istag php:latest -n openshift'
-
-# should fail due to missing php:latest tag
-os::cmd::expect_failure 'oc new-app --image-stream=openshift/php https://github.com/sclorg/cakephp-ex'
-
-# should succeed and create the php:latest tag in the current namespace
-os::cmd::expect_success 'oc new-app --docker-image=library/php https://github.com/sclorg/cakephp-ex --strategy=source'
-os::cmd::try_until_success 'oc get istag php:latest -n test-imagestreams'
-os::cmd::expect_success 'oc create istag php:latest --from=openshift/php:7.1 -n openshift'
 
 # create a new tag for an existing imagestream in the current namespace
 os::cmd::expect_success 'oc create istag perl:5.30 --from=openshift/perl:5.30'
@@ -607,3 +644,5 @@ os::cmd::expect_failure_and_text 'oc new-app ./test/testdata/testapp --binary' '
 
 echo "new-app: ok"
 os::test::junit::declare_suite_end
+
+*/
