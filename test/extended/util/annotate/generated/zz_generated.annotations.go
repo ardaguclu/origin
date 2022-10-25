@@ -1745,7 +1745,9 @@ var annotations = map[string]string{
 
 	"[Top Level] [sig-cli] oc label pod": "pod [Suite:openshift/conformance/parallel]",
 
-	"[Top Level] [sig-cli] oc new-app [apigroup:project.openshift.io][apigroup:build.openshift.io][apigroup:apps.openshift.io][apigroup:user.openshift.io][apigroup:image.openshift.io][Skipped:Disconnected][Serial] create imagestream": "create imagestream [Suite:openshift/conformance/serial]",
+	"[Top Level] [sig-cli] oc new-app [apigroup:project.openshift.io][apigroup:build.openshift.io][apigroup:apps.openshift.io][apigroup:user.openshift.io][apigroup:image.openshift.io][Skipped:Disconnected][Serial] create imagestreams": "create imagestreams [Suite:openshift/conformance/serial]",
+
+	"[Top Level] [sig-cli] oc new-app [apigroup:project.openshift.io][apigroup:build.openshift.io][apigroup:apps.openshift.io][apigroup:user.openshift.io][apigroup:image.openshift.io][Skipped:Disconnected][Serial] works": "works [Suite:openshift/conformance/serial]",
 
 	"[Top Level] [sig-cli] oc observe works as expected [apigroup:config.openshift.io]": "works as expected [apigroup:config.openshift.io] [Suite:openshift/conformance/parallel]",
 

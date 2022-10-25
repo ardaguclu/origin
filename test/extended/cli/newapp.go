@@ -18,7 +18,7 @@ var _ = g.Describe("[sig-cli] oc new-app [apigroup:project.openshift.io][apigrou
 		cmdTestData = exutil.FixturePath("testdata", "cmd", "test", "cmd", "testdata")
 	)
 
-	g.It("create imagestream", func() {
+	g.It("create imagestreams", func() {
 		g.By("imagestream/tag creation and reuse")
 		err := oc.Run("create").Args("-f", fmt.Sprintf("%s/image-streams/image-streams-centos7.json", cmdTestData), "-n", oc.Namespace()).Execute()
 		o.Expect(err).NotTo(o.HaveOccurred())
@@ -94,19 +94,55 @@ var _ = g.Describe("[sig-cli] oc new-app [apigroup:project.openshift.io][apigrou
 		o.Expect(err).NotTo(o.HaveOccurred())
 
 		g.By("check reuse imagestreams")
-		err = oc.Run("new-build").Args("-D", "$'FROM node:8\\nRUN echo \\\"Test\\\"'", "--name=node8").Execute()
+		err = oc.Run("new-build").Args("-D", `$'FROM node:8\nRUN echo "Test"'`, "--name=node8").Execute()
 		o.Expect(err).NotTo(o.HaveOccurred())
 		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
 			return oc.Run("get").Args("istag", "node:8").Execute() == nil, nil
 		})
 		o.Expect(err).NotTo(o.HaveOccurred())
 
-		err = oc.Run("new-build").Args("-D", "$'FROM node:10\\nRUN echo \\\"Test\\\"'", "--name=node10").Execute()
+		err = oc.Run("new-build").Args("-D", `$'FROM node:10\nRUN echo "Test"'`, "--name=node10").Execute()
 		o.Expect(err).NotTo(o.HaveOccurred())
 		err = wait.PollImmediate(500*time.Millisecond, time.Minute, func() (done bool, err error) {
 			return oc.Run("get").Args("istag", "node:10").Execute() == nil, nil
 		})
 		o.Expect(err).NotTo(o.HaveOccurred())
+	})
+
+	g.It("works", func() {
+		projectName, err := oc.Run("project").Args("-q").Output()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		err = oc.Run("project").Args(projectName).Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		g.By("This test validates the new-app command")
+		out, err := oc.Run("new-app").Args("library/php", "mysql", "-o", "yaml").Output()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		o.Expect(out).To(o.ContainSubstring("3306"))
+
+		out, err = oc.Run("new-app").Args("library/php", "mysql", "--dry-run").Output()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		o.Expect(out).To(o.ContainSubstring(`Image "library/php" runs as the 'root' user which may not be permitted by your cluster administrator`))
+
+		err = oc.Run("new-app").Args("unknownhubimage", "-o", "yaml").Execute()
+		o.Expect(err).To(o.HaveOccurred())
+
+		out, err = oc.Run("new-app").Args("docker.io/node~https://github.com/sclorg/nodejs-ex").Output()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		o.Expect(out).To(o.ContainSubstring(`the image match "docker.io/node" for source repository "https://github.com/sclorg/nodejs-ex" does not appear to be a source-to-image builder.`))
+
+		out, err = oc.Run("new-app").Args("https://github.com/sclorg/rails-ex").Output()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		o.Expect(out).To(o.ContainSubstring(`the image match "ruby" for source repository "https://github.com/sclorg/rails-ex" does not appear to be a source-to-image builder.`))
+
+		err = oc.Run("new-app").Args("https://github.com/sclorg/rails-ex", "--strategy=source", "--dry-run").Execute()
+		o.Expect(err).NotTo(o.HaveOccurred())
+
+		g.By("verify we can generate a container image based component \"mongodb\" directly")
+		out, err = oc.Run("new-app").Args("mongo", "-o", "yaml").Output()
+		o.Expect(err).NotTo(o.HaveOccurred())
+		o.Expect(out).To(o.ContainSubstring("mongo")) // TODO: image:\s*mongo
 	})
 })
 
@@ -126,16 +162,6 @@ var _ = g.Describe("[sig-cli] oc new-app [apigroup:project.openshift.io][apigrou
 
 os::test::junit::declare_suite_start "cmd/newapp"
 
-# This test validates the new-app command
-os::cmd::expect_success 'oc project ${default_project}'
-os::cmd::expect_success_and_text 'oc new-app library/php mysql -o yaml' '3306'
-os::cmd::expect_success_and_text 'oc new-app library/php mysql --dry-run' "Image \"library/php\" runs as the 'root' user which may not be permitted by your cluster administrator"
-os::cmd::expect_failure 'oc new-app unknownhubimage -o yaml'
-os::cmd::expect_failure_and_text 'oc new-app docker.io/node~https://github.com/sclorg/nodejs-ex' 'the image match \"docker.io/node\" for source repository \"https://github.com/sclorg/nodejs-ex\" does not appear to be a source-to-image builder.'
-os::cmd::expect_failure_and_text 'oc new-app https://github.com/sclorg/rails-ex' 'the image match \"ruby\" for source repository \"https://github.com/sclorg/rails-ex\" does not appear to be a source-to-image builder.'
-os::cmd::expect_success 'oc new-app https://github.com/sclorg/rails-ex --strategy=source --dry-run'
-# verify we can generate a container image based component "mongodb" directly
-os::cmd::expect_success_and_text 'oc new-app mongo -o yaml' 'image:\s*mongo'
 # the local image repository takes precedence over the Docker Hub "mysql" image
 os::cmd::expect_success 'oc create -f ${TEST_DATA}/image-streams/image-streams-centos7.json'
 os::cmd::try_until_success 'oc get imagestreamtags mysql:latest' $((2*TIME_MIN))
