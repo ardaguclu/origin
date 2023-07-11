@@ -41,44 +41,11 @@ var _ = g.Describe("[sig-api-machinery][Feature:ClusterResourceQuota]", func() {
 			clusterAdminDynamicClient := oc.AdminDynamicClient()
 
 			labelSelectorKey := "foo-" + oc.Namespace()
-			cqName := "overall-" + oc.Namespace()
-			cq := &quotav1.ClusterResourceQuota{
-				ObjectMeta: metav1.ObjectMeta{Name: cqName},
-				Spec: quotav1.ClusterResourceQuotaSpec{
-					Selector: quotav1.ClusterResourceQuotaSelector{
-						LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{labelSelectorKey: "bar"}},
-					},
-					Quota: corev1.ResourceQuotaSpec{
-						Hard: corev1.ResourceList{
-							corev1.ResourceConfigMaps:                     resource.MustParse("2"),
-							"openshift.io/imagestreams":                   resource.MustParse("1"),
-							"count/templates.template.openshift.io":       resource.MustParse("1"),
-							"count/servicemonitors.monitoring.coreos.com": resource.MustParse("1"),
-						},
-					},
-				},
-			}
 
-			const kubeRootCAName = "kube-root-ca.crt"
-			framework.Logf("expecting ConfigMap %q to be present", kubeRootCAName)
-
-			const serviceCAName = "openshift-service-ca.crt"
-			framework.Logf("expecting ConfigMap %q to be present", serviceCAName)
-
-			// Each namespace is expected to have a configmap each for kube root ca and service ca
-			namespaceInitialCMCount := 2
-
-			// Ensure quota includes the 2 mandatory configmaps
-			// TODO(marun) Figure out why the added quantity isn't 2
-			mandatoryCMQuantity := resource.NewQuantity(int64(namespaceInitialCMCount)*2, resource.DecimalSI)
-			q := cq.Spec.Quota.Hard[corev1.ResourceConfigMaps]
-			q.Add(*mandatoryCMQuantity)
-			cq.Spec.Quota.Hard[corev1.ResourceConfigMaps] = q
-
-			if _, err := clusterAdminQuotaClient.QuotaV1().ClusterResourceQuotas().Create(context.Background(), cq, metav1.CreateOptions{}); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			oc.AddResourceToDelete(quotav1.GroupVersion.WithResource("clusterresourcequotas"), cq)
+			const (
+				kubeRootCAName = "kube-root-ca.crt"
+				serviceCAName  = "openshift-service-ca.crt"
+			)
 
 			firstProjectName := oc.SetupProject()
 			secondProjectName := oc.SetupProject()
@@ -104,6 +71,40 @@ var _ = g.Describe("[sig-api-machinery][Feature:ClusterResourceQuota]", func() {
 			if err := labelNamespace(clusterAdminKubeClient.CoreV1(), labelSelectorKey, secondProjectName); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+
+			cqName := "overall-" + oc.Namespace()
+			cq := &quotav1.ClusterResourceQuota{
+				ObjectMeta: metav1.ObjectMeta{Name: cqName},
+				Spec: quotav1.ClusterResourceQuotaSpec{
+					Selector: quotav1.ClusterResourceQuotaSelector{
+						LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{labelSelectorKey: "bar"}},
+					},
+					Quota: corev1.ResourceQuotaSpec{
+						Hard: corev1.ResourceList{
+							corev1.ResourceConfigMaps:                     resource.MustParse("2"),
+							"openshift.io/imagestreams":                   resource.MustParse("1"),
+							"count/templates.template.openshift.io":       resource.MustParse("1"),
+							"count/servicemonitors.monitoring.coreos.com": resource.MustParse("1"),
+						},
+					},
+				},
+			}
+
+			// Each namespace is expected to have a configmap each for kube root ca and service ca
+			namespaceInitialCMCount := 2
+
+			// Ensure quota includes the 2 mandatory configmaps
+			// TODO(marun) Figure out why the added quantity isn't 2
+			mandatoryCMQuantity := resource.NewQuantity(int64(namespaceInitialCMCount)*2, resource.DecimalSI)
+			q := cq.Spec.Quota.Hard[corev1.ResourceConfigMaps]
+			q.Add(*mandatoryCMQuantity)
+			cq.Spec.Quota.Hard[corev1.ResourceConfigMaps] = q
+
+			if _, err := clusterAdminQuotaClient.QuotaV1().ClusterResourceQuotas().Create(context.Background(), cq, metav1.CreateOptions{}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			oc.AddResourceToDelete(quotav1.GroupVersion.WithResource("clusterresourcequotas"), cq)
+
 			if err := waitForQuotaLabeling(clusterAdminQuotaClient, firstProjectName, cqName); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -273,8 +274,7 @@ var _ = g.Describe("[sig-api-machinery][Feature:ClusterResourceQuota]", func() {
 })
 
 func waitForQuotaLabeling(clusterAdminClient quotaclient.Interface, namespaceName, cqName string) error {
-	// timeout is increased due to https://issues.redhat.com//browse/OCPBUGS-15568
-	return utilwait.PollImmediate(100*time.Millisecond, 30*time.Second, func() (done bool, err error) {
+	return utilwait.PollImmediate(100*time.Millisecond, 10*time.Second, func() (done bool, err error) {
 		list, err := clusterAdminClient.QuotaV1().AppliedClusterResourceQuotas(namespaceName).List(context.Background(), metav1.ListOptions{})
 		if err != nil {
 			framework.Logf("unexpected err during cluster quota listing: %v", err)
